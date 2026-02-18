@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"latihan_devops/internal/models"
+	"log"
 	"net/http"
 	"time"
 )
@@ -17,9 +18,9 @@ func NewUserHandler(db *sql.DB) *UserHandler {
 }
 
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.DB.Query("SELECT id, name, email, created_at FROM users")
+	rows, err := h.DB.Query("SELECT id, name, email, created_at FROM users ORDER BY id DESC")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Error querying database: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -27,19 +28,33 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	var users []models.User
 	for rows.Next() {
 		var user models.User
-		err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.CreatedAt)
+		var createdAt time.Time
+		err := rows.Scan(&user.ID, &user.Name, &user.Email, &createdAt)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Error scanning row: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		user.CreatedAt = createdAt.Format(time.RFC3339)
 		users = append(users, user)
 	}
 
+	if err = rows.Err(); err != nil {
+		http.Error(w, "Error iterating rows: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(users)
+	w.WriteHeader(http.StatusOK)
+
+	// ✅ FIX: Check error from Encode
+	if err := json.NewEncoder(w).Encode(users); err != nil {
+		// Log error internally, but response might already be sent
+		log.Printf("Error encoding users response: %v", err)
+	}
 }
 
-func (h *UserHandler) CreateUSer(w http.ResponseWriter, r *http.Request) {
+// POST /users - Membuat user baru
+func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -49,7 +64,7 @@ func (h *UserHandler) CreateUSer(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(&newUser)
 	if err != nil {
-		http.Error(w, "Invalid request body : "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
@@ -60,11 +75,11 @@ func (h *UserHandler) CreateUSer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.DB.Exec(
-		"INSERT INTO users (name, email) VALUES (?,?)",
+		"INSERT INTO users (name, email) VALUES (?, ?)",
 		newUser.Name, newUser.Email,
 	)
 	if err != nil {
-		http.Error(w, "Error creating user : "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Error creating user: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -81,17 +96,33 @@ func (h *UserHandler) CreateUSer(w http.ResponseWriter, r *http.Request) {
 	).Scan(&createdUser.ID, &createdUser.Name, &createdUser.Email, &createdAt)
 
 	if err != nil {
-		http.Error(w, "Error fetching created user : "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Error fetching created user: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	createdUser.CreatedAt = createdAt.Format(time.RFC3339)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(createdUser)
+
+	// ✅ FIX: Check error from Encode
+	if err := json.NewEncoder(w).Encode(createdUser); err != nil {
+		log.Printf("Error encoding created user response: %v", err)
+	}
 }
 
+// Health check endpoint
 func HealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"Status": "Healty"})
+
+	response := map[string]interface{}{
+		"status":    "healthy",
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	// ✅ FIX: Check error from Encode
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding health check response: %v", err)
+	}
 }
