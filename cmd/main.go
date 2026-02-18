@@ -20,7 +20,7 @@ func main() {
 	userHandler := handlers.NewUserHandler(db)
 
 	router.HandleFunc("/users", userHandler.GetUsers).Methods("GET")
-	router.HandleFunc("/users", userHandler.CreateUSer).Methods("POST")
+	router.HandleFunc("/users", userHandler.CreateUser).Methods("POST")
 	router.HandleFunc("/health", handlers.HealthCheck).Methods("GET")
 
 	log.Println("Server running on port 6000")
